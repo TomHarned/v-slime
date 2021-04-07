@@ -1,27 +1,86 @@
---TODO: write code to create slime_path if the file doesn't 
---exist
+
+-- Remap keys to provide spacemacs-like slime experience
+-- comment these this out to turn off, or change them to 
+-- something you like better.
+vis:map(vis.modes.VISUAL_LINE, "<Space>ss", ":slime<Enter>") 
+vis:map(vis.modes.VISUAL, "<Space>ss", ":slime<Enter>") 
+vis:map(vis.modes.NORMAL, "<Space>ss", "V:slime<Enter><Escape>") 
+vis:map(vis.modes.NORMAL, "<Space>sr", "vip:slime<Enter><Escape>") 
+
+--TODO: add a subscription/event listener that clears the pane when the file close
+--TODO: if no pane is selected, use vis:info to print a help message and break the execution
 vis:command_register("slime", function(argv, force, win, selection, range)  
+    if argv[1] == "help" or argv[1] == "h" then
+        help_msg = " Vslime: Slime for the vis editor\
+        \n :slime\n  Sends the current selection to the designated tmux pane\
+        \n :slime set-pane <num>\n  Sets the target tmux pane\
+        \n :slime get-pane\n  Displays the current target tmux pane\
+        \n :slime help\n  Display this help menu\
+        \n (END)"
+        vis:message(help_msg)
+    elseif argv[1] == "set-pane" then
+        target_pane = argv[2]
+        slime_config_file = make_slime_file('.vslime_config')
+        local f = io.open(slime_config_file, "w")
+        f:write(target_pane)
+        f:close()
+        vis:info("Tmux target pane set to: " .. target_pane)
+    elseif argv[1] == "get-pane" then
+        target_pane = get_slime_config()
+        vis:info("Tmux target pane: " .. target_pane) 
+    else
+        slime_content_file = make_slime_file('.vslime_paste')
+        -- TODO: Put the saving of the selection in it's own function
+        local f = io.open(slime_content_file, "w")
+        local selected_content = win.file:content(selection.range)
+        -- remove empty lines from selection
+        cleaned_content = string.gsub(selected_content, "\n\n","\n")
+        f:write(cleaned_content)
+        f:close()
+        -- Need a better way to hanle python code blocks
+        -- maybe test if the the last line the the block has
+        -- four more leading spaces than the first line
+        if cleaned_content:match("^def") then
+            cleaned_content = cleaned_content .. "\n"
+        end
+        content_str =  "'" .. cleaned_content .. "'"
+        -- use current session and window, prompt for pane
+        tmux_cmd = make_tmux_cmd()
+        tmux_send = tmux_cmd .. content_str
+        io.popen(tmux_send)
+    end
+    local success, msg
+end)
+
+-- Helper Functions --
+function make_slime_file(file)
     local sh_handle = io.popen("echo $HOME")
     local home = sh_handle:read("*a") 
     home = string.gsub(home, "\n","")
-    local slime_file = ".v-slime_paste"
-    local slime_path = home .. "/" ..  slime_file
-    local f = io.open(slime_path, "w")
-    local selected_content = win.file:content(selection.range)
-    -- remove empty lines from selection
-    cleaned_content = string.gsub(selected_content, "\n\n","\n")
-    f:write(cleaned_content)
-    f:write(home)
-    --Right now we're manually setting session
-    --TODO: review the vim slime function to get session, window and pane prompt for the first send
-    --e.g. create variables for this, if they are null when command is run, prompt for them:
-    --TODO: Also createa a function change the destination
-    -- break this into invidiual vars then concat into one statement
-    -- 4 = session, 1 = window, 2 = pane
-    -- use current session and window, prompt for pane
-    io.popen("tmux send-keys -t 4:1.2 " .. "'" .. cleaned_content .. "'" .. " ")
-    io.popen("tmux send-keys -t 4:1.2 C-m")
-    -- TODO: with python function, figure out how to put in hard return at end -- look at vim slime for ideas
+    local slime_file = home .. "/" ..  file
+    return slime_file
+end
+    
+function make_tmux_cmd()
+    local cmd = 'tmux list-panes -t "$TMUX_PANE" -F "#S" | head -n1'
+    local tmux_session_handle = io.popen(cmd)
+    local tmux_session = tmux_session_handle:read("*a")
+    -- get tmux current window number
+    local cmd = "tmux list-windows | grep active.$ | cut -c 1"
+    local tmux_handle = io.popen(cmd)
+    -- io.popen usually returns a file, you have to convert it to text
+    local tmux_window = tmux_handle:read("*a")
+    local tmux_pane = get_slime_config()
+    local tmux_prefix = "tmux send-keys -t "
+    local tmux_conf = tmux_session .. ":" .. tmux_window .. "." .. tmux_pane .. " "
+    local tmux_cmd = tmux_prefix .. tmux_conf
+    local tmux_cmd = string.gsub(tmux_cmd, "\n","")
+    return tmux_cmd
+end
 
-    local success, msg, status = f:close()
-end)
+function get_slime_config()
+    slime_config_file = make_slime_file('.vslime_config')
+    local tmux_pane_handle = io.open(slime_config_file, "r")
+    local tmux_pane = tmux_pane_handle:read("*a")
+    return tmux_pane
+end
