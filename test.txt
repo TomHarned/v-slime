@@ -1,0 +1,37 @@
+one line
+more lines.
+my_func(1, 9)
+
+
+two lines
+even more lines.
+
+three lines
+
+four
+
+five
+
+cd .. 
+
+print("hello world")
+
+cd ~
+
+cd .config/nvim
+
+python
+
+def my_func(a, b):
+    c = b * 8
+    return a + c
+
+
+my_func(1, 9)
+
+1 + 5
+
+import re
+
+(+ (* 9 8)
+7)
