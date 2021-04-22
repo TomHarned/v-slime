@@ -1,16 +1,15 @@
-
 -- Remap keys to provide spacemacs-like slime experience
--- comment these this out to turn off, or change them to 
--- something you like better.
-vis:map(vis.modes.VISUAL_LINE, "<Space>ss", ":slime<Enter>") 
-vis:map(vis.modes.VISUAL, "<Space>ss", ":slime<Enter>") 
-vis:map(vis.modes.NORMAL, "<Space>ss", "V:slime<Enter><Escape>") 
-vis:map(vis.modes.NORMAL, "<Space>sr", "vip:slime<Enter><Escape>") 
-
---TODO: add a subscription/event listener that clears the pane when the file close
---TODO: if no pane is selected, use vis:info to print a help message and break the execution
-vis:command_register("slime", function(argv, force, win, selection, range)  
-    if argv[1] == "help" or argv[1] == "h" then
+vis:map(vis.modes.VISUAL_LINE, "<Space>ss", ":slime<Enter>")
+vis:map(vis.modes.VISUAL, "<Space>ss", ":slime<Enter>")
+vis:map(vis.modes.NORMAL, "<Space>ss", "V:slime<Enter><Escape>")
+vis:map(vis.modes.NORMAL, "<Space>sr", "vip:slime<Enter><Escape>")
+-- TODO: add a subscription/event listener that clears the pane on close
+-- TODO: if no pane is selected, use vis:info to print a help message
+-- and break the execution
+vis:command_register("slime", function(argv, force, win, selection, range)
+    -- local slime_content_file = '.vslime_paste'
+    local slime_buffer = 'slime_buffer'
+    if argv[1] == "help" or argv[1] == "-h" then
         help_msg = " Vslime: Slime for the vis editor\
         \n :slime\n  Sends the current selection to the designated tmux pane\
         \n :slime set-pane <num>\n  Sets the target tmux pane\
@@ -29,27 +28,31 @@ vis:command_register("slime", function(argv, force, win, selection, range)
         target_pane = get_slime_config()
         vis:info("Tmux target pane: " .. target_pane) 
     else
-        slime_content_file = make_slime_file('.vslime_paste')
         -- TODO: Put the saving of the selection in it's own function
+        -- Make this it's own function then embed within send-tmux
+        slime_content_file = make_slime_file('.vslime_paste')
         local f = io.open(slime_content_file, "w")
         local selected_content = win.file:content(selection.range)
         -- remove empty lines from selection
-        cleaned_content = string.gsub(selected_content, "\n\n","\n")
+        local cleaned_content = string.gsub(selected_content, "\n\n","\n")
+        local _, count = string.gsub(cleaned_content, "\n", "")
+        ftype = get_file_type()
+        if ftype == "py" then
+            if count > 1 and test_pyblock(cleaned_content) then
+                cleaned_content = cleaned_content .. "\n"
+            end
+        end
         f:write(cleaned_content)
         f:close()
-        -- Need a better way to hanle python code blocks
-        -- maybe test if the the last line the the block has
-        -- four more leading spaces than the first line
-        if cleaned_content:match("^def") then
-            cleaned_content = cleaned_content .. "\n"
-        end
-        content_str =  "'" .. cleaned_content .. "'"
-        -- use current session and window, prompt for pane
-        tmux_cmd = make_tmux_cmd()
-        tmux_send = tmux_cmd .. content_str
-        io.popen(tmux_send)
+        -- TODO: add error handling and prompts when using tmux_send and set_pane
+        -- TODO: wipe set-pane when file closes
+        -- TODO: use a table to pair set-pane with files to allow multiple
+        -- vis-pane -> tmux-pane pairs
+        -- TODO: turn paste file into function param with default
+        -- TODO: Turn slime buffer into local var
+        local tmux_pane = get_slime_config()
+        send_tmux()
     end
-    local success, msg
 end)
 
 -- Helper Functions --
@@ -60,22 +63,16 @@ function make_slime_file(file)
     local slime_file = home .. "/" ..  file
     return slime_file
 end
-    
-function make_tmux_cmd()
-    local cmd = 'tmux list-panes -t "$TMUX_PANE" -F "#S" | head -n1'
-    local tmux_session_handle = io.popen(cmd)
-    local tmux_session = tmux_session_handle:read("*a")
-    -- get tmux current window number
-    local cmd = "tmux list-windows | grep active.$ | cut -c 1"
-    local tmux_handle = io.popen(cmd)
-    -- io.popen usually returns a file, you have to convert it to text
-    local tmux_window = tmux_handle:read("*a")
+
+
+function send_tmux()
+    io.popen("tmux load-buffer -b slime_buffer ~/.vslime_paste")
     local tmux_pane = get_slime_config()
-    local tmux_prefix = "tmux send-keys -t "
-    local tmux_conf = tmux_session .. ":" .. tmux_window .. "." .. tmux_pane .. " "
-    local tmux_cmd = tmux_prefix .. tmux_conf
-    local tmux_cmd = string.gsub(tmux_cmd, "\n","")
-    return tmux_cmd
+    -- Make sure the buffer loads before executing paste
+    os.execute("sleep 0.0001")
+    tmux_snd_cmd = "tmux paste-buffer -b slime_buffer -t " .. tmux_pane
+    --io.popen("tmux paste-buffer -b slime_buffer -t 1")
+    io.popen(tmux_snd_cmd)
 end
 
 function get_slime_config()
@@ -83,4 +80,40 @@ function get_slime_config()
     local tmux_pane_handle = io.open(slime_config_file, "r")
     local tmux_pane = tmux_pane_handle:read("*a")
     return tmux_pane
+end
+
+
+function test_pyblock(lines)
+    -- tests to see if the last line in a selection has leading spaces
+    new_lines = {}
+    for line in lines:gmatch("[^\n]+") do
+        table.insert(new_lines, line)
+    end
+    -- Detect when you hit the last line
+    -- When you hit the last line append to blank lines to the block
+    for i, line in ipairs(new_lines) do
+        if next(new_lines, i) == nil then
+            if string.starts(line, " ") then
+                result = true
+            else
+                result = nil
+            end
+        end
+    end
+    return result
+end
+
+function string.starts(String,Start)
+   return string.sub(String,1,string.len(Start))==Start
+end
+
+function get_file_type()
+    local file_obj = vis.win.file
+    local file_name = file_obj.name
+    local file_pieces = {}
+    for v in string.gmatch(file_name, '([^%.]+)') do
+        table.insert(file_pieces, v)
+    end
+    file_type = file_pieces[#file_pieces]
+    return file_type
 end
