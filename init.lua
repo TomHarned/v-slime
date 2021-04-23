@@ -48,6 +48,8 @@ vis:command_register("slime", function(argv, force, win, selection, range)
         -- TODO: wipe set-pane when file closes
         -- TODO: use a table to pair set-pane with files to allow multiple
         -- vis-pane -> tmux-pane pairs
+        -- TODO: add error handling for files/buffers w/no name i.e. a new
+        -- unsaved file/buffer
         -- TODO: turn paste file into function param with default
         -- TODO: Turn slime buffer into local var
         local tmux_pane = get_slime_config()
