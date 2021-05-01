@@ -3,10 +3,10 @@ vis:map(vis.modes.VISUAL_LINE, " ss", ":slime<Enter>")
 vis:map(vis.modes.VISUAL, " ss", ":slime<Enter>")
 vis:map(vis.modes.NORMAL, " ss", "V:slime<Enter><Escape>")
 vis:map(vis.modes.NORMAL, " sr", "vip:slime<Enter><Escape>")
--- TODO: add a subscription/event listener that clears the pane on close
 -- TODO: if no pane is selected, use vis:info to print a help message
 -- and break the execution
 slime_config_file_name = '.vslime_config'
+no_pane_msg = "No tmux pane set, use 'slime set-pane <pane number>'"
 
 vis:command_register("slime", function(argv, force, win, selection, range)
     -- local slime_content_file = '.vslime_paste'
@@ -30,7 +30,7 @@ vis:command_register("slime", function(argv, force, win, selection, range)
         target_pane = get_slime_config()
         if target_pane == nil
         then
-            vis:info("No tmux pane set, use 'slime set-pane <pane number>'")
+            vis:info(no_pane_msg)
         else
             vis:info("Tmux target pane: " .. target_pane) 
 	end
@@ -51,15 +51,18 @@ vis:command_register("slime", function(argv, force, win, selection, range)
         end
         f:write(cleaned_content)
         f:close()
-        -- TODO: add error handling and prompts when using tmux_send and set_pane
-        -- TODO: use a table to pair set-pane with files to allow multiple
-        -- vis-pane -> tmux-pane pairs
         -- TODO: add error handling for files/buffers w/no name i.e. a new
         -- unsaved file/buffer
-        -- TODO: turn paste file into function param with default
+        -- TODO: use a table to pair set-pane with files to allow multiple
+        -- vis-pane -> tmux-pane pairs
         -- TODO: Turn slime buffer into local var
-        local tmux_pane = get_slime_config()
-        send_tmux()
+        tmux_pane = get_slime_config()
+        if tmux_pane == nil or tmux_pane == ''
+        then
+            vis:info(no_pane_msg)
+        else
+            send_tmux()
+        end    
     end
 end)
 
@@ -86,13 +89,11 @@ end
 function get_slime_config()
     slime_config_file = make_slime_file(slime_config_file_name)
     local tmux_pane_handle = io.open(slime_config_file, "r")
---    if tmux_pane_hanle == nil or tmux_pane_handle == ''
-    if f ~= nil
+    if tmux_pane_handle ~= nil
     then
-        local tmux_pane = tmux_pane_handle:read("*a")
+        tmux_pane = tmux_pane_handle:read("*a")
     else
-        local tmux_pane = nil
-        vis:info("pane is nil")
+        tmux_pane = nil
     end
     return tmux_pane
 end
