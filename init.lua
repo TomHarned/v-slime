@@ -1,11 +1,13 @@
 -- Remap keys to provide spacemacs-like slime experience
-vis:map(vis.modes.VISUAL_LINE, "<Space>ss", ":slime<Enter>")
-vis:map(vis.modes.VISUAL, "<Space>ss", ":slime<Enter>")
-vis:map(vis.modes.NORMAL, "<Space>ss", "V:slime<Enter><Escape>")
-vis:map(vis.modes.NORMAL, "<Space>sr", "vip:slime<Enter><Escape>")
+vis:map(vis.modes.VISUAL_LINE, " ss", ":slime<Enter>")
+vis:map(vis.modes.VISUAL, " ss", ":slime<Enter>")
+vis:map(vis.modes.NORMAL, " ss", "V:slime<Enter><Escape>")
+vis:map(vis.modes.NORMAL, " sr", "vip:slime<Enter><Escape>")
 -- TODO: add a subscription/event listener that clears the pane on close
 -- TODO: if no pane is selected, use vis:info to print a help message
 -- and break the execution
+slime_config_file_name = '.vslime_config'
+
 vis:command_register("slime", function(argv, force, win, selection, range)
     -- local slime_content_file = '.vslime_paste'
     local slime_buffer = 'slime_buffer'
@@ -19,14 +21,19 @@ vis:command_register("slime", function(argv, force, win, selection, range)
         vis:message(help_msg)
     elseif argv[1] == "set-pane" then
         target_pane = argv[2]
-        slime_config_file = make_slime_file('.vslime_config')
+        slime_config_file = make_slime_file(slime_config_file_name)
         local f = io.open(slime_config_file, "w")
         f:write(target_pane)
         f:close()
         vis:info("Tmux target pane set to: " .. target_pane)
     elseif argv[1] == "get-pane" then
         target_pane = get_slime_config()
-        vis:info("Tmux target pane: " .. target_pane) 
+        if target_pane == nil
+        then
+            vis:info("No tmux pane set, use 'slime set-pane <pane number>'")
+        else
+            vis:info("Tmux target pane: " .. target_pane) 
+	end
     else
         -- TODO: Put the saving of the selection in it's own function
         -- Make this it's own function then embed within send-tmux
@@ -45,7 +52,6 @@ vis:command_register("slime", function(argv, force, win, selection, range)
         f:write(cleaned_content)
         f:close()
         -- TODO: add error handling and prompts when using tmux_send and set_pane
-        -- TODO: wipe set-pane when file closes
         -- TODO: use a table to pair set-pane with files to allow multiple
         -- vis-pane -> tmux-pane pairs
         -- TODO: add error handling for files/buffers w/no name i.e. a new
@@ -73,14 +79,21 @@ function send_tmux()
     -- Make sure the buffer loads before executing paste
     os.execute("sleep 0.0001")
     tmux_snd_cmd = "tmux paste-buffer -b slime_buffer -t " .. tmux_pane
-    --io.popen("tmux paste-buffer -b slime_buffer -t 1")
     io.popen(tmux_snd_cmd)
 end
 
+
 function get_slime_config()
-    slime_config_file = make_slime_file('.vslime_config')
+    slime_config_file = make_slime_file(slime_config_file_name)
     local tmux_pane_handle = io.open(slime_config_file, "r")
-    local tmux_pane = tmux_pane_handle:read("*a")
+--    if tmux_pane_hanle == nil or tmux_pane_handle == ''
+    if f ~= nil
+    then
+        local tmux_pane = tmux_pane_handle:read("*a")
+    else
+        local tmux_pane = nil
+        vis:info("pane is nil")
+    end
     return tmux_pane
 end
 
@@ -119,3 +132,12 @@ function get_file_type()
     file_type = file_pieces[#file_pieces]
     return file_type
 end
+
+-- On exit, clear the pane setting
+vis.events.subscribe(vis.events.QUIT, function (file, path)
+    file = slime_config_file_name
+    path = os.getenv( "HOME" )
+    cmd = "rm " .. path .. "/" ..  file
+    os.execute(cmd)
+end)
+
